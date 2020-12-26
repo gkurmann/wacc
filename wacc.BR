@@ -1,0 +1,182 @@
+wacc.BR<- function(ticker.escolhido, periodos, venc){
+  
+  #Carrega classificação setorial segundo Damodaran para empresas brasileiras
+  url<-"https://github.com/gkurmann/wacc/raw/master/Tickers_classification.csv"
+  Tickers_classification<-read.csv2(url)
+  Tickers_classification<-data.frame(Tickers_classification)
+  
+  # Download da proporção dívida/equity das empresas
+  url<-("https://statusinvest.com.br/category/advancedsearchresultexport?search=%7B%22Sector%22%3A%22%22%2C%22SubSector%22%3A%22%22%2C%22Segment%22%3A%22%22%2C%22my_range%22%3A%220%3B25%22%2C%22dy%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_L%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_VP%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_Ativo%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22margemBruta%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22margemEbit%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22margemLiquida%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_Ebit%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22eV_Ebit%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22dividaLiquidaEbit%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22dividaliquidaPatrimonioLiquido%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_SR%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_CapitalGiro%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22p_AtivoCirculante%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22roe%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22roic%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22roa%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22liquidezCorrente%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22pl_Ativo%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22passivo_Ativo%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22giroAtivos%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22receitas_Cagr5%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22lucros_Cagr5%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%2C%22liquidezMediaDiaria%22%3A%7B%22Item1%22%3Anull%2C%22Item2%22%3Anull%7D%7D&CategoryType=1")
+  test<-download.file(url, 'ticker.data')
+  
+  ticker <- data.frame(read_delim("ticker.data", ";", 
+                                  escape_double = FALSE, locale = locale(decimal_mark = ",", 
+                                                                         grouping_mark = "."), trim_ws = TRUE))
+  
+  df.ticker<-data.frame(ticker$TICKER, ticker$PASSIVOS...ATIVOS, ticker$PATRIMONIO...ATIVOS)
+  colnames(df.ticker)<- c('ticker', 'D.E', 'E.V')
+  
+  # Downloda dos betas não alavancados setoriais - Damodaran
+  
+  betas<-data.frame(betas())
+  df.beta<- data.frame(betas$Industry, betas$Av_Unlevered_Beta)
+  url<-"https://raw.githubusercontent.com/gkurmann/wacc/master/adj"
+  aj<-read.csv2(url)
+  aj<-data.frame(aj)
+  df.beta<- cbind(aj, df.beta)
+  colnames(df.beta)<- c('Industry', "Ind.damodaran", 'unlevered.beta')
+  df.beta
+  
+  # Junta betas de damodaran com as classificacoes de industria dos tickers
+  
+  colnames(Tickers_classification)<- c('statusinv', 'ticker', 'company.name', 'Industry')
+  
+  df.tickers<-merge(Tickers_classification, df.beta, by="Industry")
+  
+  
+  # Adiciona dados de divida equity no mesmo data.frame
+  df.tickers<- merge(df.tickers, df.ticker, by= 'ticker')
+  
+  # Seleciona a empresa escolhida
+  company<- function(x){
+    industry.class <- df.tickers %>% 
+      select(ticker, Industry, unlevered.beta, D.E, E.V) %>%
+      filter(ticker == x)
+    colnames(industry.class) <- c("ticker", "industry.name", 'unlevered.beta', 'D.E', 'E.V')
+    return(industry.class)
+  }
+  company.data<-company(ticker.escolhido)
+  
+  # Calcula beta alavancado da empresa selecionada
+  
+  beta.alav<-company.data$unlevered.beta*(1+(1-0.34)*company.data$D.E)
+  
+  # Levanta dados da inflação implícita no Brasil
+  
+  df.yield <- get.yield.curve()
+  infl.brasil<- df.yield%>% 
+    filter(type=='implicit_inflation')
+  infl.brasil
+  infl.brasil<- last(infl.brasil$value)
+  infl.brasil<-infl.brasil/100
+  infl.brasil
+  # RLevanta dados do risco Brasil
+  
+  EMBI<-data.frame(last(ipeadata('JPM366_EMBI366', language = c("en", "br"), quiet = FALSE)))
+  EMBI<-as.integer(EMBI[3])
+  Risk<-EMBI/10000
+  
+  # Calcula retornos anuais do S&P de acordo com a periodicidade selecionada
+  
+  sp.return <- function(n){
+    x<-year(Sys.Date())
+    x<- x-n
+    first.date<-as.Date(paste(x, sep="", "/01/01"))
+    last.date<-Sys.Date()
+    
+    sp <- BatchGetSymbols("^GSPC",first.date, last.date, 
+                          bench.ticker = "^GSPC", freq.data = 'yearly') 
+    sp<- sp$df.tickers
+    date <- data.frame(sp$ref.date)
+    sp<- cbind(date, sp$ret.adjusted.prices)
+    colnames(sp) <- c('ref.date','retorno.SP')
+    sp<-na.exclude(sp)
+    return(sp)
+  }
+  bench<-sp.return(periodos)
+  rm<-mean(bench$retorno.SP) 
+  
+  # Levanta dados dos juros americanos e desenha a curva
+  
+  t1yr <- (getSymbols(Symbols = c("DGS1"), src = "FRED", auto.assign = FALSE))
+  t2yr <- (getSymbols(Symbols = c("DGS2"), src = "FRED", auto.assign = FALSE))
+  t5yr <- (getSymbols(Symbols = c("DGS5"), src = "FRED", auto.assign = FALSE))
+  t10yr <- (getSymbols(Symbols = c("DGS10"), src = "FRED", auto.assign = FALSE))
+  t30Yr <- (getSymbols(Symbols = c("DGS30"), src = "FRED", auto.assign = FALSE))
+  
+  
+  yield.data<-(cbind(t1yr, t2yr, t5yr,t10yr, t30Yr))
+  last(yield.data)
+  maturity<- c(1,2,5,10,30)
+  SvenssonParameters<-Svensson(last(yield.data), maturity)
+  maturityc<-seq(1,30,by=1)
+  
+  Svensson.rate <- Srates( SvenssonParameters ,maturityc,"Spot")
+  data.trasury<- data.frame(t(Svensson.rate), maturityc)
+  colnames(data.trasury)<- c('Yield', 'maturity')
+  
+  # Calcula média de retorno anual dos títulos americanos para, posteriormente, calcular o prêmio de risco médio
+  
+  mean.year<- function(y, venc){
+    tyr <- (getSymbols(Symbols = paste('DGS', sep= "",venc), src = "FRED", auto.assign = FALSE))
+    tyr<-data.frame(tyr,as.Date(index(tyr), format="%Y"))
+    colnames(tyr)<-c("yield", "date")
+    tyr$Year<-as.numeric(format(tyr$date, "%Y"))
+    tyr<-na.exclude(tyr)
+    
+    mean.t<-aggregate(x = (tyr$yield)/100,
+                      by = list(tyr$Year),
+                      FUN = mean) 
+    colnames(mean.t)<- c('year', 'yield')
+    mean.t
+    
+    ano1<- year(Sys.Date())
+    ano2<- ano1-y-1
+    mean.tf<- mean.t %>%
+      select(year, yield)%>%
+      filter(year>ano2)%>%
+      filter(year<ano1)
+    return(mean.tf)
+  }
+  # prêmio médio
+  prize<-cbind(mean.year(periodos, venc),bench)
+  prize$rmrf<- prize$retorno.SP-prize$yield 
+  rmrf<-mean(prize$rmrf)
+  
+  # Download dos treasury tips para calculo da inflação implicita
+  
+  t5yr.TIPS<- getSymbols(Symbols = c("DFII5"), src = "FRED", auto.assign = FALSE)
+  t7yr.TIPS<- getSymbols(Symbols = c("DFII7"), src = "FRED", auto.assign = FALSE)
+  t10yr.TIPS<- getSymbols(Symbols = c("DFII10"), src = "FRED", auto.assign = FALSE)
+  t30yr.TIPS<- getSymbols(Symbols = c("DFII30"), src = "FRED", auto.assign = FALSE)
+  
+  yield.TIPS.data<-(cbind(t5yr.TIPS, t7yr.TIPS, t10yr.TIPS, t30yr.TIPS))
+  maturity.TIPS<- c(5,7,10,30)
+  
+  SvenssonParameters.TIPS<-Svensson(last(yield.TIPS.data), maturity.TIPS)
+  
+  Svensson.rate.TIPS <- Srates(SvenssonParameters.TIPS ,maturityc,"Spot")
+  
+  data.TIPS<- data.frame(t(Svensson.rate.TIPS), maturityc)
+  colnames(data.TIPS)<- c('Yield', 'maturity')
+  
+  # INFLAÇÃO IMPLÍCITA EUA
+  
+  implicit.inflation<-data.frame(data.trasury$Yield -data.TIPS$Yield)
+  implicit.inflation<- data.frame(maturityc,implicit.inflation)
+  colnames(implicit.inflation)<- c('maturity','inflation')
+  
+  # yield BR
+  
+  RF.brasil<- df.yield%>% 
+    filter(n.biz.days==(252*periodos), type=='nominal_return')
+  RF.brasil<- RF.brasil$value
+  RF.brasil<-RF.brasil/100
+  
+  # Retorno esperado
+  
+  RE<- (1+(data.trasury[periodos,1]/100)+(beta.alav*(rmrf+Risk)))*(((1+infl.brasil)/(1+(implicit.inflation[periodos,2]/100))))-1
+  RE
+  # WACC
+  prime <- (getSymbols(Symbols = c("DPRIME"), src = "FRED", auto.assign = FALSE))
+  ki<- last(prime/100)+Risk
+  
+  WACC<- (RE*((company.data$E.V)))+((ki*(1-0.34))*company.data$D.E)
+  
+  WACC.REAL<- ((1+WACC)/(1+infl.brasil))-1
+  
+  df.out <- data.frame(ticker.escolhido, beta.alav, RE ,WACC, WACC.REAL)
+  colnames(df.out)<-c("Ticker","Beta.alav", "RE", "WACC", "WACC REAL")
+  
+  return(df.out)
+}
